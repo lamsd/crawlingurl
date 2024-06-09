@@ -1,0 +1,69 @@
+import requests
+import json
+from tqdm import trange
+import csv
+
+def query_sciencedirect(query, api_key, start=0, count=25):
+    """Truy vấn ScienceDirect API với phân trang."""
+    base_url = "https://api.elsevier.com/content/search/sciencedirect"
+    params = {
+        "query": query,
+        "apiKey": "7f59af901d2d86f78a1fd60c1bf9426a",
+        "httpAccept": "application/json",
+        "start": start,
+        "count": count
+    }
+
+    try:
+        response = requests.get(base_url, params=params)
+        response.raise_for_status()  # Ném ngoại lệ cho mã trạng thái không thành công
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Lỗi kết nối: {e}")
+        return None
+
+def process_entry(entry):
+    """Xử lý một bản ghi từ API."""
+    # Extract authors directly as they are likely strings
+    return {
+        "title": entry.get("dc:title"),
+        #"authors": entry.get("dc:creator", []),  # Modified line
+        #"abstract": entry.get("dc:description"),
+        #"doi": entry.get("prism:doi"),
+        "url": next((link["@href"] for link in entry["link"] if link["@ref"] == "scidir"), None),
+        "publicationYear": entry.get("prism:coverDate", "")[:4]  # Lấy 4 ký tự đầu (năm)
+    }
+
+def save_to_csv(data, filename):
+    """Lưu dữ liệu vào file CSV."""
+    with open(filename, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=data[0].keys())
+        writer.writeheader()  # Ghi tiêu đề cột
+        writer.writerows(data)  # Ghi dữ liệu
+
+def main():
+    query = "quantum deep learning"
+    api_key = "7f59af901d2d86f78a1fd60c1bf9426a"  # Thay thế bằng key thực của bạn
+
+    # Lấy tổng số kết quả
+    first_page = query_sciencedirect(query, api_key)
+    if not first_page:
+        return
+    total_results = int(first_page["search-results"]["opensearch:totalResults"])
+    print(f"Tổng số kết quả: {total_results}")
+
+    # Lấy tất cả kết quả
+    all_entries = []
+    for start in trange(0, 24):
+        data = query_sciencedirect(query, api_key, start=start)
+        if data:
+            all_entries.extend(data["search-results"]["entry"])
+        else:
+            break
+
+    processed_data = [process_entry(entry) for entry in all_entries]
+    save_to_csv(processed_data, f"{query.replace(' ', '_')}_articles.csv")  # Lưu dưới dạng CSV
+    print(f"Đã lưu {len(processed_data)} bản ghi vào {query.replace(' ', '_')}_articles.csv")
+
+if __name__ == "__main__":
+    main()
